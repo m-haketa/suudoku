@@ -20,6 +20,9 @@ Dim MatrixFlag() As Long
 '例　225を2進数表示したときに１のビットが何個あるかは、bitCountArr(225）で算出できる
 Dim bitCountArr() As Long
 
+'MatrixFlagに応じて入力可能な数値をあらかじめ文字列の形で格納しておく
+'例　AvailableNumArr(31) → "9876"
+Dim AvailableNumArr() As String
 
 
 '''以下、履歴関連変数
@@ -83,7 +86,7 @@ Sub main()
   StartTime = Timer
   Debug.Print StartTime
   
-  bitCountArr = createBitArray(9)
+  Call createBitArray(9)
     
   Dim MatrixTemp As Variant
   MatrixTemp = iSheet.Range("A1:I9").Value
@@ -127,15 +130,19 @@ Function parse() As Boolean
   End If
 
 '''試行錯誤開始
-'入力対象となる数値
-  Dim n As Long
-  For n = 1 To 9
+'入力対象となる数値が格納されている配列の何文字目かを示す
+  Dim num As Long
+  
+'入力可能な数字の一覧を取得
+  Dim availableNumbers As String
+  availableNumbers = AvailableNumArr(MatrixFlag(Next_y, Next_x))
+  
+  For num = 1 To Len(availableNumbers)
 
-'numが入力できるかどうかを表すフラグ
-    Dim flag As Long
-    flag = MatrixFlag(Next_y, Next_x) And 2 ^ (n - 1)
-    
-    If flag = 0 Then
+    '入力可能な文字
+    Dim n As Long
+    n = CLng(Mid(availableNumbers, num, 1))
+
 '暫定的に入力可能な数値を入力
       Call setNum(Next_y, Next_x, n, kind_type.Pending)
 
@@ -151,7 +158,7 @@ Function parse() As Boolean
           Call display
         End If
       End If
-    End If
+
   Next
 
 Break:
@@ -205,10 +212,9 @@ Function Check1() As Boolean
   lastY = 9
   lastX = 9
   
-'試行錯誤で試すマスも同時に探索する
+'試行錯誤で試すマスも同時に探索するので、
 'まず初期化しておく
   Call init_next
-    
    
   Do
    For y = 1 To 9
@@ -222,8 +228,7 @@ Function Check1() As Boolean
       n = 0
       If bitCountArr(MatrixFlag(y, x)) = 8 Then
 '数値が１つだけしか入れられないマスの処理
-        n = 511 Xor MatrixFlag(y, x)
-        n = WorksheetFunction.Log(n * 2, 2)
+        n = CLng(AvailableNumArr(MatrixFlag(y, x)))
       End If
                 
 '''２．行、列、3x3に着目して１つのマスにしか入れられない数字がないかをチェックする
@@ -248,12 +253,12 @@ Function Check1() As Boolean
       End If
                 
       If n = 0 Then
-'''上記１，２で、入力すべきマスがなかった場合
+'''上記１、２で、入力すべきマスがなかった場合
 '''３．試行錯誤するときの候補となすマスを探す
         Call set_next(y, x, MatrixFlag(y, x))
       
       Else
-'入力すべきマスがあった場合（n>0の場合）
+'上記１，２で入力すべきマスがあった場合（n>0の場合）
         Call setNum(y, x, n, kind_type.Fixed)
         Check1 = True
       
@@ -294,9 +299,10 @@ Function Search(y1 As Long, x1 As Long, y2 As Long, x2 As Long, yBase As Long, x
     Next
    Next
    
-   If temp > 0 Then
-     '通常は、条件を満たす数字は１つしかありえないはず
-     Search = WorksheetFunction.Log(temp * 2, 2)
+   temp = temp Xor 511
+   If temp < 511 Then
+     '通常は、条件を満たす数字は１つ（＝AvailableNumarrには1文字しか入っていない）しかありえないので、単にclngで変換
+     Search = CLng(AvailableNumArr(temp))
    Else
      Search = 0
    End If
@@ -368,13 +374,19 @@ Sub setNum(y As Long, x As Long, n As Long, kind As Long)
 End Sub
 
 
-Function createBitArray(bitCount As Long) As Long()
-'bitCount　　※配列を準備する最大ビット数（0 to 2^bitcount-1で配列が確保される）
-'bitCountArr 1が何ビットあるか判定用の配列。たとえばbitCountArr(511) = 9になる。
-  Dim retArr() As Long
-  ReDim retArr(0 To 2 ^ 9 - 1) As Long
+Sub createBitArray(bitCount As Long)
+'MatrixFlagの数値に応じた各種判定用の配列を事前に準備しておく
+'
+'bitCountArr MatrixFlagの値に応じて、1が何ビットあるか判定用の配列。たとえばbitCountArr(511) = 9になる。
+'
+'availablenumarr　MatrixFlagの値に応じて、入力可能な数値の一覧を文字列の形で格納した配列
+'例　AvailableNumArr(31) → "9876"
+  
+  
+  ReDim bitCountArr(0 To 2 ^ bitCount - 1) As Long
+  ReDim AvailableNumArr(0 To 2 ^ bitCount - 1) As String
      
-  retArr(0) = 0
+  bitCountArr(0) = 0
   
   Dim I As Long
   Dim c As Long
@@ -383,12 +395,13 @@ Function createBitArray(bitCount As Long) As Long()
   For I = 1 To bitCount
    Cdiff = 2 ^ (I - 1)
    For c = 0 To Cdiff - 1
-    retArr(c + Cdiff) = retArr(c) + 1
+    bitCountArr(c + Cdiff) = bitCountArr(c) + 1
+    AvailableNumArr(c + Cdiff) = AvailableNumArr(c)
+    AvailableNumArr(c) = AvailableNumArr(c) & I
    Next
   Next
   
-  createBitArray = retArr
-End Function
+End Sub
 
 
 Sub push_history(y As Long, x As Long, n As Long, kind As Long)
@@ -458,7 +471,7 @@ Sub set_next(y As Long, x As Long, MatrixFlag As Long)
   UsedNumberCount = bitCountArr(MatrixFlag)
   
 '入力不能マスがある場合には即座に実行中止
-'エラーを発生させる（＝元ルーチンでは次の試行に移る）
+'エラーを発生させる（＝元ルーチンで次の試行に移る）
   If UsedNumberCount = 9 Then
     Call Err.Raise(99999, "set_next", "raise exception")
   End If
